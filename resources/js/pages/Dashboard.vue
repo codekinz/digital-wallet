@@ -43,5 +43,10 @@ const breadcrumbs: BreadcrumbItem[] = [
                 <PlaceholderPattern />
             </div>
         </div>
+
+
+
     </AppLayout>
 </template>
+
+
