@@ -37,14 +37,14 @@ public function store(Request $request)
         return response()->json(['error' => 'Receiver not found'], 404);
     }
     if ($sender->id === $receiver->id) {
-        //return response()->json(['error' => 'Cannot send money to yourself'], 400);
+        return response()->json(['error' => 'Cannot send money to yourself'], 400);
     }
     $amount = $request->amount;
     $commission = $amount * 0.015;
     $totalDebit = $amount + $commission;
 
     if ($sender->balance < $totalDebit) {
-        //return response()->json(['error' => 'Insufficient balance'], 400);
+        return response()->json(['error' => 'Insufficient balance'], 400);
     }
 
     DB::beginTransaction();
