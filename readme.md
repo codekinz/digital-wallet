@@ -52,7 +52,13 @@ This project is a simplified digital wallet application developed as part of the
 2. composer install
 
 3. npm install
-4. php artisan server  
+4. chmod +x clean.sh
+5. ./clean.sh
+6. php artisan serve
+7. npm run dev
 
-5. npm run dev
+
+# login with 
+  admin@gmail.com
+  admin123
 
