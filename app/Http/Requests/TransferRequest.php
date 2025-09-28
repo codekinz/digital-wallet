@@ -30,10 +30,16 @@ class TransferRequest extends FormRequest
                 'exists:users,id',
                 Rule::notIn([auth()->id()]),
             ],
-            'amount'      => [
+            'amount' => [
                 'required',
                 'numeric',
                 'min:0.01',
+                function ($attribute, $value, $fail) {
+                    $user = auth()->user();
+                    if ($user && $user->balance < $value) {
+                        $fail('Insufficient balance.');
+                    }
+                },
             ],
         ];
     }
