@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Head, usePage } from '@inertiajs/vue3';
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted } from 'vue';
 import axios from 'axios';
 
 // Define types
@@ -26,7 +26,6 @@ const receiverId = ref('');
 const amount = ref<number | null>(null);
 const error = ref<string>('');
 
-const breadcrumbs: { label: string; route?: string }[] = [];
 
 onMounted(() => {
   if (user) fetchTransactions();
@@ -54,7 +53,7 @@ const transfer = async () => {
   }
 
   try {
-    const response = await axios.post('/api/transactions', {
+    await axios.post('/api/transactions', {
       receiver_id: receiverId.value,
       amount: amount.value
     }, {
