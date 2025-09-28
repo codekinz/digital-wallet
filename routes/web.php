@@ -14,7 +14,7 @@ Route::get('dashboard', function () {
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/api/transactions', [TransactionController::class, 'index']);
-    Route::post('/api/transactions', [TransactionController::class, 'store']);
+    Route::post('/api/transactions', [TransactionController::class, 'store'])->name('transactions.store');
 });
 
 require __DIR__.'/settings.php';
