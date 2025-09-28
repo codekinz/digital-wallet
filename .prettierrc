@@ -2,8 +2,11 @@
     "semi": true,
     "singleQuote": true,
     "singleAttributePerLine": false,
-    "htmlWhitespaceSensitivity": "css",
+    "htmlWhitespaceSensitivity": "ignore",
     "printWidth": 80,
+    "tabWidth": 4,
+    "arrowParens": "avoid",
+    "bracketSameLine": true,
     "plugins": [
         "prettier-plugin-organize-imports",
         "prettier-plugin-tailwindcss"
@@ -14,10 +17,9 @@
         "cva"
     ],
     "tailwindStylesheet": "resources/css/app.css",
-    "tabWidth": 4,
     "overrides": [
         {
-            "files": "**/*.yml",
+            "files": ["**/*.yml", "**/*.yaml"],
             "options": {
                 "tabWidth": 2
             }
