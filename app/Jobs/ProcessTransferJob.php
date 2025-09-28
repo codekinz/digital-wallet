@@ -23,39 +23,119 @@ class ProcessTransferJob implements ShouldQueue
     }
 
     /**
-     * @throws Exception|Throwable
+     * @throws Throwable
      */
     public function handle(): void
     {
-        try {
-            $sender = User::findOrFail($this->senderId);
-            $receiver = User::findOrFail($this->receiverId);
+        $this->withOptimisticRetries(function () {
+            $this->transfer();
+        });
+    }
 
-            $commission = $this->amount * 0.015;
-            $totalDebit = $this->amount + $commission;
+    /**
+     * @throws Throwable
+     */
+    protected function withOptimisticRetries(
+        callable $callback,
+        int $maxRetries = 5,
+        int $baseDelayMs = 50
+    ): void {
+        $attempt = 1;
 
-            if ($sender->balance < $totalDebit) {
-                throw new Exception('Balance not enough');
+        while ($attempt <= $maxRetries) {
+            try {
+                $callback();
+                return;
+            } catch (Exception $e) {
+                if (str_contains($e->getMessage(), 'balance conflict')) {
+                    if ($attempt === $maxRetries) {
+                        logger("Optimistic lock failed after {$maxRetries} attempts: {$e->getMessage()}", [
+                            'sender_id' => $this->senderId,
+                            'receiver_id' => $this->receiverId,
+                            'amount' => $this->amount,
+                        ]);
+
+                        throw $e;
+                    }
+
+                    logger("Optimistic lock retry {$attempt}/{$maxRetries}: {$e->getMessage()}", [
+                        'sender_id' => $this->senderId,
+                        'receiver_id' => $this->receiverId,
+                    ]);
+
+                    usleep($baseDelayMs * 1000 * (2 ** ($attempt - 1)));
+                    $attempt++;
+                } else {
+                    logger("Transfer failed: {$e->getMessage()}", [
+                        'sender_id' => $this->senderId,
+                        'receiver_id' => $this->receiverId,
+                        'amount' => $this->amount,
+                    ]);
+
+                    throw $e;
+                }
             }
+        }
+    }
 
-            DB::beginTransaction();
+    /**
+     * @throws Exception|Throwable
+     */
+    private function transfer(): void
+    {
+        $commission = $this->amount * config('transactions.transaction_rate', 0.015);
+        $totalDebit = $this->amount + $commission;
 
-            $sender->balance -= $totalDebit;
-            $receiver->balance += $this->amount;
-            $sender->save();
-            $receiver->save();
+        DB::beginTransaction();
 
-            Transaction::create([
-                'sender_id' => $sender->id,
-                'receiver_id' => $receiver->id,
-                'amount' => $this->amount,
-                'commission_fee' => $commission
+        $sender = User::findOrFail($this->senderId);
+        $receiver = User::findOrFail($this->receiverId);
+
+        if ($sender->balance < $totalDebit) {
+            throw new Exception('Insufficient balance');
+        }
+
+        $senderLock = $sender->version;
+        $receiverLock = $receiver->version;
+
+        $updatedRows = DB::table('users')
+            ->where('id', $this->senderId)
+            ->where('version', $senderLock)
+            ->update([
+                'version' => DB::raw('version + 1'),
+                'balance' => DB::raw("balance - {$totalDebit}"),
+                'updated_at' => now(),
             ]);
 
-            DB::commit();
-        } catch (Exception $e) {
-            DB::rollBack();
-            throw $e;
+        if ($updatedRows === 0) {
+            throw new Exception("Sender balance conflict for ID {$this->senderId}, version {$senderLock}");
         }
+
+        $updatedRows = DB::table('users')
+            ->where('id', $this->receiverId)
+            ->where('version', $receiverLock)
+            ->update([
+                'version' => DB::raw('version + 1'),
+                'balance' => DB::raw("balance + {$this->amount}"),
+                'updated_at' => now(),
+            ]);
+
+        if ($updatedRows === 0) {
+            throw new Exception("Receiver balance conflict for ID {$this->receiverId}, version {$receiverLock}");
+        }
+
+        Transaction::create([
+            'sender_id' => $this->senderId,
+            'receiver_id' => $this->receiverId,
+            'amount' => $this->amount,
+            'commission_fee' => $commission,
+        ]);
+
+        cache()->forget("user_balance:{$this->senderId}");
+        cache()->forget("user_balance:{$this->receiverId}");
+        cache()->tags("user_transactions:{$this->senderId}")->flush();
+        cache()->tags("user_transactions:{$this->receiverId}")->flush();
+
+        DB::commit();
     }
 }
