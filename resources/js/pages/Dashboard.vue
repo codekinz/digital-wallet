@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import InputError from '@/components/InputError.vue';
 import { Button } from '@/components/ui/button';
+import Pusher from 'pusher-js';
+import { usePage } from '@inertiajs/vue3';
+
 import {
     Dialog,
     DialogClose,
@@ -18,6 +21,7 @@ import { dashboard } from '@/routes';
 import { type BreadcrumbItem } from '@/types';
 import { Form, Head, useForm } from '@inertiajs/vue3';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
+import axios from 'axios';
 
 const breadcrumbs: BreadcrumbItem[] = [
     {
@@ -25,6 +29,10 @@ const breadcrumbs: BreadcrumbItem[] = [
         href: dashboard().url,
     },
 ];
+
+
+
+const page = usePage();
 
 const people = [
     {
@@ -107,9 +115,34 @@ let pusher: { subscribe: (arg0: string) => any; disconnect: () => void },
         unbind_all: () => void;
     };
 
+const transactions = ref([]);
+const balance = ref(0);
+
+const formattedBalance = computed(() => {
+  return balance.value.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+});
+
+const fetchTransactions = async (page = 1) => {
+  try {
+    const { data } = await axios.get(`/api/transactions?page=${page}`);
+    transactions.value = data.transactions.data;
+    balance.value = data.balance;
+  } catch (error) {
+    console.error('Error fetching transactions:', error);
+  }
+};
+
 onMounted(() => {
-    console.log(localStorage.getItem('token'));
-    pusher = new Pusher('your-pusher-key', { cluster: 'your-pusher-cluster' });
+    fetchTransactions();
+    const userId = page.props.auth.user.id; // assuming you share auth.user
+    pusher = new Pusher('2a08a48a4c38225d1e28', { cluster: 'ap1' });
+
+    pusher.connection.bind('state_change', (states: { previous: string; current: string }) => {
+        console.log('Pusher state changed:', states.previous, '→', states.current);
+    });
     channel = pusher.subscribe(`user.${userId}`);
     channel.bind('transaction.created', data => {
         emit('transaction-updated', data);
@@ -141,11 +174,12 @@ const emit = defineEmits(['transaction-updated']);
                 </div>
             </div>
 
+            <!-- ✅ Balance injected here -->
             <div class="space-y-6">
                 <div class="flex items-end gap-x-1">
                     <h3
                         class="text-4xl font-bold tracking-wide text-foreground">
-                        12,543.67
+                        {{ formattedBalance }}
                     </h3>
                     <span
                         class="text-base font-semibold tracking-wide text-muted-foreground uppercase">
@@ -154,6 +188,7 @@ const emit = defineEmits(['transaction-updated']);
                 </div>
             </div>
         </div>
+
         <div class="mt-8 px-4 sm:px-6 lg:px-8">
             <div class="sm:flex sm:items-center">
                 <div class="sm:flex-auto">
@@ -175,7 +210,7 @@ const emit = defineEmits(['transaction-updated']);
                         </DialogTrigger>
                         <DialogContent>
                             <Form
-                                v-bind="transactionForm"
+                                :data="form"
                                 reset-on-success
                                 @error="focusOnFirstError"
                                 :options="{ preserveScroll: true }"

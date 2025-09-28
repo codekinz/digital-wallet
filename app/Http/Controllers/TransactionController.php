@@ -15,14 +15,18 @@ class TransactionController extends Controller
         $user = auth()->user();
         $page = $request->get('page', 1);
 
-        $transactions = Cache::tags(["user_transactions:{$user->id}"])
-            ->remember("page_{$page}", 300, function () use ($user) {
-                return Transaction::query()->where('sender_id', $user->id)
+        $transactions = Cache::remember(
+            "user_transactions:{$user->id}:page_{$page}",
+            300,
+            function () use ($user) {
+                return Transaction::query()
+                    ->where('sender_id', $user->id)
                     ->orWhere('receiver_id', $user->id)
                     ->with(['sender', 'receiver'])
                     ->orderBy('created_at', 'desc')
                     ->paginate(20);
-            });
+            }
+        );
 
         return response()->json([
             'transactions' => $transactions,
