@@ -11,7 +11,7 @@ interface Transaction {
   receiver: { name: string };
   amount: number;
   commission_fee: number;
-  timestamp: string;
+  created_at: string;
 }
 
 interface User {
