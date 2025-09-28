@@ -3,20 +3,28 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\TransferRequest;
-use Illuminate\Http\Request;
-use App\Models\User;
 use App\Models\Transaction;
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class TransactionController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
         $user = auth()->user();
-        $transactions = Transaction::where('sender_id', $user->id)
-            ->orWhere('receiver_id', $user->id)
-            ->with(['sender', 'receiver'])
-            ->get();
+        $page = $request->get('page', 1);
+
+        $transactions = Cache::tags(["user_transactions:{$user->id}"])
+            ->remember("page_{$page}", 300, function () use ($user) {
+                return Transaction::query()->where('sender_id', $user->id)
+                    ->orWhere('receiver_id', $user->id)
+                    ->with(['sender', 'receiver'])
+                    ->orderBy('created_at', 'desc')
+                    ->paginate(20);
+            });
+
         return response()->json([
             'transactions' => $transactions,
             'balance' => $user->balance
