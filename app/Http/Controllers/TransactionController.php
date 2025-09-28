@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\TransferRequest;
 use Illuminate\Http\Request;
 use App\Models\User;
 use App\Models\Transaction;
@@ -22,21 +23,10 @@ class TransactionController extends Controller
         ]);
     }
 
-    public function store(Request $request)
+    public function store(TransferRequest $request)
     {
-        $request->validate([
-            'receiver_id' => 'required|exists:users,id',
-            'amount' => 'required|numeric|min:0.01'
-        ]);
-
         $sender = auth()->user();
         $receiver = User::findOrFail($request->receiver_id);
-        if (!$receiver) {
-            return response()->json(['error' => 'Receiver not found'], 404);
-        }
-        if ($sender->id === $receiver->id) {
-            return response()->json(['error' => 'Cannot send money to yourself'], 400);
-        }
         $amount = $request->amount;
         $commission = $amount * 0.015;
         $totalDebit = $amount + $commission;
