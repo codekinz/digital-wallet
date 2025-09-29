@@ -2,32 +2,51 @@
 
 namespace App\Events;
 
+use App\Models\Transaction;
+use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Broadcasting\PrivateChannel;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class TransactionCreated implements ShouldBroadcast
+class TransactionCreated implements ShouldBroadcastNow
 {
-    use Dispatchable;
-    use InteractsWithSockets;
-    use SerializesModels;
+    use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public $transaction;
+    public $senderBalance;
+    public $receiverBalance;
 
-    public function __construct($transaction)
+    public function __construct(Transaction $transaction)
     {
         $this->transaction = $transaction;
+        
+        // Load fresh balances
+        $this->senderBalance = $transaction->sender->fresh()->balance;
+        $this->receiverBalance = $transaction->receiver->fresh()->balance;
     }
 
-    public function broadcastOn()
+    public function broadcastOn(): array
     {
-        return new PrivateChannel('user.' . $this->transaction->user_id);
+        \Log::info("Broadcasting TransactionCreated to user.{$this->transaction->sender_id} and user.{$this->transaction->receiver_id}");
+        
+        return [
+            new Channel("user.{$this->transaction->sender_id}"),
+            new Channel("user.{$this->transaction->receiver_id}"),
+        ];
     }
 
-    public function broadcastAs()
+    public function broadcastAs(): string
     {
-        return 'transaction.created';
+        return 'TransactionCreated';
+    }
+
+    public function broadcastWith(): array
+    {
+        return [
+            'transaction' => $this->transaction->load(['sender', 'receiver']),
+            'sender_balance' => (float) $this->senderBalance,
+            'receiver_balance' => (float) $this->receiverBalance,
+        ];
     }
 }

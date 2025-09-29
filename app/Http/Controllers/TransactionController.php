@@ -4,11 +4,11 @@ namespace App\Http\Controllers;
 
 use Illuminate\Support\Facades\DB;
 use App\Events\TransactionCreated;
-use App\Http\Requests\TransferRequest;
 use App\Models\Transaction;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Inertia\Inertia;
 
 class TransactionController extends Controller
 {
@@ -30,40 +30,67 @@ class TransactionController extends Controller
             }
         );
 
-        return response()->json([
+        return Inertia::render('Dashboard', [
             'transactions' => $transactions,
-            'balance' => $user->balance
+            'balance' => $user->balance,
+            'filters' => $request->only(['page']),
         ]);
     }
 
-    public function store(TransferRequest $request)
-    {
+    public function store(Request $request)
+{
+    $request->validate([
+        'receiver_id' => 'required|exists:users,id',
+        'amount' => 'required|numeric|min:0.01|max:'.auth()->user()->balance,
+    ]);
+
+    $amount = $request->amount;
+    $commissionFee = $amount * 0.015;
+
+    DB::beginTransaction();
+
+    try {
+        // Update sender's balance first
         $sender = auth()->user();
+        $sender->balance -= $amount;
+        $sender->save();
+
+        // Update receiver's balance
         $receiver = User::findOrFail($request->receiver_id);
+        $receiver->balance += $amount;
+        $receiver->save();
 
-        $amount = (float) $request->amount;
-        $commissionRate = config('transactions.transaction_rate');
-        $commission = $amount * $commissionRate;
-        $netAmount = $amount - $commission;
+        // Create the transaction
+        $transaction = Transaction::create([
+            'sender_id' => $sender->id,
+            'receiver_id' => $request->receiver_id,
+            'amount' => $amount,
+            'commission_fee' => $commissionFee,
+        ]);
 
-        DB::transaction(function () use ($sender, $receiver, $amount, $commission) {
-            // Deduct from sender
-            $sender->decrement('balance', $amount);
+        DB::commit();
 
-            // Add to receiver (net amount after commission)
-            $receiver->increment('balance', $amount - $commission);
+        // Clear cache
+        Cache::forget("user_transactions:{$sender->id}:page_1");
+        Cache::forget("user_transactions:{$receiver->id}:page_1");
 
-            // Store transaction
-            $transaction = $sender->sentTransactions()->create([
-                'receiver_id'   => $receiver->id,
-                'amount'        => $amount,
-                'commission_fee' => $commission,
-            ]);
+        \Log::info("Creating TransactionCreated event for transaction #{$transaction->id}");
 
-            // Fire event for real-time update
-            broadcast(new TransactionCreated($transaction))->toOthers();
-        });
+        // Fire the event
+        event(new TransactionCreated($transaction));
 
-        return redirect()->back()->with('success', 'Transaction successful');
+        \Log::info("TransactionCreated event fired for transaction #{$transaction->id}");
+
+        return redirect()->route('dashboard')->with([
+            'success' => 'Transaction completed successfully!',
+        ]);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        \Log::error("Transaction failed: " . $e->getMessage());
+        return back()->withErrors([
+            'error' => 'Transaction failed: ' . $e->getMessage()
+        ]);
     }
+}
 }
