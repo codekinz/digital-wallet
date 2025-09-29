@@ -2,16 +2,18 @@
 
 namespace App\Jobs;
 
+use App\Events\TransactionCreated;
 use App\Models\Transaction;
 use App\Models\User;
 use Exception;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\DB;
-use Throwable;
 
 class ProcessTransferJob implements ShouldQueue
 {
+    use Dispatchable;
     use Queueable;
 
     public function __construct(
@@ -19,12 +21,8 @@ class ProcessTransferJob implements ShouldQueue
         protected int $receiverId,
         protected float $amount
     ) {
-        //
     }
 
-    /**
-     * @throws Throwable
-     */
     public function handle(): void
     {
         $this->withOptimisticRetries(function () {
@@ -32,9 +30,6 @@ class ProcessTransferJob implements ShouldQueue
         });
     }
 
-    /**
-     * @throws Throwable
-     */
     protected function withOptimisticRetries(
         callable $callback,
         int $maxRetries = 5,
@@ -54,7 +49,6 @@ class ProcessTransferJob implements ShouldQueue
                             'receiver_id' => $this->receiverId,
                             'amount' => $this->amount,
                         ]);
-
                         throw $e;
                     }
 
@@ -71,16 +65,12 @@ class ProcessTransferJob implements ShouldQueue
                         'receiver_id' => $this->receiverId,
                         'amount' => $this->amount,
                     ]);
-
                     throw $e;
                 }
             }
         }
     }
 
-    /**
-     * @throws Exception|Throwable
-     */
     private function transfer(): void
     {
         $commission = $this->amount * config('transactions.transaction_rate', 0.015);
@@ -124,17 +114,22 @@ class ProcessTransferJob implements ShouldQueue
             throw new Exception("Receiver balance conflict for ID {$this->receiverId}, version {$receiverLock}");
         }
 
-        Transaction::create([
+        $transaction = Transaction::create([
             'sender_id' => $this->senderId,
             'receiver_id' => $this->receiverId,
             'amount' => $this->amount,
             'commission_fee' => $commission,
         ]);
 
+        $newSenderBalance = $sender->balance - $totalDebit;
+        $newReceiverBalance = $receiver->balance + $this->amount;
+
         cache()->forget("user_balance:{$this->senderId}");
         cache()->forget("user_balance:{$this->receiverId}");
-        cache()->tags("user_transactions:{$this->senderId}")->flush();
-        cache()->tags("user_transactions:{$this->receiverId}")->flush();
+        cache()->tags(["user_transactions:{$this->senderId}"])->flush();
+        cache()->tags(["user_transactions:{$this->receiverId}"])->flush();
+
+        event(new TransactionCreated($transaction, $newSenderBalance, $newReceiverBalance));
 
         DB::commit();
     }
