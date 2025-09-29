@@ -47,15 +47,10 @@ This project is a simplified digital wallet application developed as part of the
 ### Installation Steps
 1. **Clone the Repository**
    ```bash
-   git clone <your-repository-url>
-
+   git clone git@github.com:codekinz/digital-wallet.git
 2. composer install
-
 3. npm install
-4. chmod +x clean.sh
-5. ./clean.sh
-6. php artisan serve
-7. npm run dev
+4. npm run dev
 
 
 # login with 
