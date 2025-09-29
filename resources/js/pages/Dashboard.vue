@@ -111,56 +111,97 @@ const loadMoreTransactions = () => {
 // Pusher setup for real-time updates
 let pusher: Pusher | null = null;
 
+
+// Add the missing refreshData function
+const refreshData = () => {
+    router.reload({
+        preserveScroll: true,
+        only: ['transactions', 'balance'],
+        onSuccess: () => {
+            transactions.value = page.props.transactions?.data || [];
+            balance.value = parseFloat(page.props.balance) || 0;
+            console.log('Data refreshed manually');
+        }
+    });
+};
+
 const handleTransactionCreated = (data: any) => {
-    console.log('🎉 handleTransactionCreated CALLED!', data);
+    console.log('handleTransactionCreated CALLED!', data);
     
-    // Parse the data based on the structure from Laravel logs
-    const transactionData = data.transaction || data;
-    const senderBalance = data.sender_balance;
-    const receiverBalance = data.receiver_balance;
+    // Debug the exact data structure
+    console.log('Raw data structure:', JSON.stringify(data, null, 2));
     
-    console.log('📊 Transaction data:', transactionData);
+    // Extract data based on different possible structures
+    let transactionData, senderBalance, receiverBalance;
     
-    // Add the new transaction to the top of the list
+    if (data.transaction) {
+        // Structure: { transaction: {...}, sender_balance: x, receiver_balance: y }
+        transactionData = data.transaction;
+        senderBalance = data.sender_balance;
+        receiverBalance = data.receiver_balance;
+    } else if (data.sender_id) {
+        // Structure: direct transaction object
+        transactionData = data;
+        senderBalance = data.sender_balance;
+        receiverBalance = data.receiver_balance;
+    } else {
+        console.error('Unknown data structure:', data);
+        return;
+    }
+    
+    console.log('Parsed transaction:', transactionData);
+    console.log('Balances - sender:', senderBalance, 'receiver:', receiverBalance);
+    
+    // Create new transaction object
     const newTransaction = {
         id: transactionData.id,
         sender_id: transactionData.sender_id,
         receiver_id: transactionData.receiver_id,
         amount: parseFloat(transactionData.amount),
-        commission_fee: parseFloat(transactionData.commission_fee),
+        commission_fee: parseFloat(transactionData.commission_fee || 0),
         created_at: transactionData.created_at,
-        sender: transactionData.sender,
-        receiver: transactionData.receiver
+        sender: transactionData.sender || { id: transactionData.sender_id, name: 'Unknown' },
+        receiver: transactionData.receiver || { id: transactionData.receiver_id, name: 'Unknown' }
     };
     
-    transactions.value.unshift(newTransaction);
-    console.log('📈 Added transaction to list');
+    console.log('New transaction to add:', newTransaction);
     
-    // Update balance
+    // Add to transactions list (at the top)
+    transactions.value.unshift(newTransaction);
+    console.log('Transaction added to list. Total transactions:', transactions.value.length);
+    
+    // Update balance based on current user
     const currentUserId = page.props.auth?.user?.id;
-    console.log('👤 Current user ID:', currentUserId);
+    console.log('Current user ID:', currentUserId);
+    console.log('Transaction - sender:', transactionData.sender_id, 'receiver:', transactionData.receiver_id);
     
     if (currentUserId === transactionData.sender_id) {
         balance.value = parseFloat(senderBalance);
-        console.log('💸 Updated SENDER balance to:', senderBalance);
+        console.log('Updated SENDER balance to:', senderBalance);
     } else if (currentUserId === transactionData.receiver_id) {
         balance.value = parseFloat(receiverBalance);
-        console.log('💸 Updated RECEIVER balance to:', receiverBalance);
+        console.log('Updated RECEIVER balance to:', receiverBalance);
+    } else {
+        console.log('Current user not involved in this transaction');
+        return;
     }
     
-    console.log('✅ Final balance:', balance.value);
+    console.log('SUCCESS - Balance updated to:', balance.value);
+    console.log('SUCCESS - Formatted balance:', formattedBalance.value);
+    
+    // Show success notification
+    if (currentUserId === transactionData.receiver_id) {
+        alert(`You received ${transactionData.amount} from ${transactionData.sender?.name || 'User #' + transactionData.sender_id}`);
+    }
 };
 
 onMounted(() => {
-    console.log('🚀 Dashboard mounted - User ID:', page.props.auth?.user?.id);
+    console.log('Dashboard mounted - User ID:', page.props.auth?.user?.id);
 
     const user = page.props.auth?.user;
-    if (!user) {
-        console.error('❌ No user found');
-        return;
-    }
+    if (!user) return;
 
-    console.log('🔌 Setting up Pusher for user:', user.id);
+    console.log('Setting up Pusher for user:', user.id);
 
     pusher = new Pusher(import.meta.env.VITE_PUSHER_APP_KEY, {
         cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER,
@@ -168,75 +209,48 @@ onMounted(() => {
         encrypted: true,
     });
 
-    // Debug connection
-    pusher.connection.bind('connected', () => {
-        console.log('✅ Pusher connected successfully');
-    });
-
-    pusher.connection.bind('error', (error: any) => {
-        console.error('❌ Pusher error:', error);
-    });
-
-    const channelName = `user.${user.id}`;
-    console.log('📡 Subscribing to channel:', channelName);
+    const channelName = `public-user-${user.id}`;
+    console.log('Subscribing to PUBLIC channel:', channelName);
     
     const channel = pusher.subscribe(channelName);
     
-    channel.bind('subscription_succeeded', () => {
-        console.log('✅ Subscribed to channel:', channelName);
+    channel.bind('pusher:subscription_succeeded', () => {
+        console.log('Successfully subscribed to:', channelName);
+        console.log('Ready to receive TransactionCreated events');
     });
 
-    channel.bind('subscription_error', (error: any) => {
-        console.error('❌ Subscription error:', error);
+    channel.bind('pusher:subscription_error', (error: any) => {
+        console.error('Subscription error:', error);
     });
 
-    // Listen for ALL possible event names
-    channel.bind('TransactionCreated', handleTransactionCreated);
-    channel.bind('transaction.created', handleTransactionCreated);
-    channel.bind('transaction-created', handleTransactionCreated);
-    channel.bind('App\\Events\\TransactionCreated', handleTransactionCreated);
-    channel.bind('.transaction.created', handleTransactionCreated);
-    
-    // Global event listener - this should catch EVERYTHING
+    // Listen for the exact event name we're broadcasting
+    channel.bind('TransactionCreated', (data: any) => {
+        console.log('SPECIFIC EVENT: TransactionCreated received!', data);
+        handleTransactionCreated(data);
+    });
+
+    // Global event listener - should catch EVERYTHING
     channel.bind_global((eventName: string, data: any) => {
-        console.log('🌐 GLOBAL EVENT - Name:', eventName, 'Data:', data);
+        console.log('GLOBAL EVENT - Name:', eventName, 'Data:', data);
         
-        // Manually call our handler for any transaction-related event
-        if (eventName.includes('transaction') || eventName.includes('Transaction')) {
-            console.log('🎯 Processing transaction event via global handler');
+        // If this is our transaction event, process it
+        if (eventName === 'TransactionCreated') {
+            console.log('Processing TransactionCreated via global handler');
             handleTransactionCreated(data);
         }
     });
 
-    console.log('👂 Listening for events on channel:', channelName);
+    // Test if we can trigger a client event (for debugging)
+    setTimeout(() => {
+        if (channel.subscribed) {
+            console.log('Channel is subscribed and ready');
+        }
+    }, 1000);
 });
-
-// Test function to verify the handler works
-const testEventHandler = () => {
-    console.log('🧪 Testing event handler...');
-    
-    const mockData = {
-        transaction: {
-            id: 999,
-            sender_id: 1,
-            receiver_id: 12,
-            amount: "25.00",
-            commission_fee: "0.38",
-            created_at: new Date().toISOString(),
-            sender: { id: 1, name: "Test Sender" },
-            receiver: { id: 12, name: "Test Receiver" }
-        },
-        sender_balance: "9715.00",
-        receiver_balance: "334.00"
-    };
-    
-    console.log('🧪 Calling handleTransactionCreated directly');
-    handleTransactionCreated(mockData);
-};
 
 onUnmounted(() => {
     if (pusher) {
-        console.log('🔌 Disconnecting Pusher...');
+        console.log('Disconnecting Pusher...');
         pusher.disconnect();
         pusher = null;
     }
@@ -460,4 +474,8 @@ const logout = () => {
             </div>
         </main>
     </div>
+   
 </template>
+
+
+

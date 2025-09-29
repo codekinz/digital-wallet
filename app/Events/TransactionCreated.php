@@ -5,13 +5,15 @@ namespace App\Events;
 use App\Models\Transaction;
 use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class TransactionCreated implements ShouldBroadcastNow
+class TransactionCreated implements ShouldBroadcast
 {
-    use Dispatchable, InteractsWithSockets, SerializesModels;
+    use Dispatchable;
+    use InteractsWithSockets;
+    use SerializesModels;
 
     public $transaction;
     public $senderBalance;
@@ -20,19 +22,15 @@ class TransactionCreated implements ShouldBroadcastNow
     public function __construct(Transaction $transaction)
     {
         $this->transaction = $transaction;
-        
-        // Load fresh balances
         $this->senderBalance = $transaction->sender->fresh()->balance;
         $this->receiverBalance = $transaction->receiver->fresh()->balance;
     }
 
     public function broadcastOn(): array
     {
-        \Log::info("Broadcasting TransactionCreated to user.{$this->transaction->sender_id} and user.{$this->transaction->receiver_id}");
-        
         return [
-            new Channel("user.{$this->transaction->sender_id}"),
-            new Channel("user.{$this->transaction->receiver_id}"),
+            new Channel('public-user-' . $this->transaction->sender_id),
+            new Channel('public-user-' . $this->transaction->receiver_id),
         ];
     }
 
