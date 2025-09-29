@@ -41,7 +41,7 @@ import { Head, Link } from '@inertiajs/vue3';
 
             <div class="flex justify-center">
                 <a
-                    href="/wallet"
+                    href="/dashboard"
                     class="px-6 py-3 rounded-lg bg-[#1b1b18] text-white text-lg font-medium shadow hover:scale-105 hover:shadow-lg transition dark:bg-white dark:text-black"
                 >
                     Open Wallet
