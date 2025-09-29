@@ -2,6 +2,12 @@
 
 use Illuminate\Support\Facades\Broadcast;
 
-Broadcast::channel('user.{id}', function ($user, $id) {
-    return (int) $user->id === (int) $id;
+// Allow all public channels (no authentication required)
+Broadcast::channel('public-user-{id}', function ($user, $id) {
+    return true; // Allow anyone to subscribe
+});
+
+// Or allow all public channels without restrictions
+Broadcast::channel('public-*', function () {
+    return true;
 });
